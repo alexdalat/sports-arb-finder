@@ -39,7 +39,11 @@ MAX_PROFIT    = float(os.getenv("AO_MAX_PROFIT", 10.0))
 # ── Helpers ──────────────────────────────────────────────────────────────────
 @dataclass
 class Opportunity:
+    id: int
+    event: str
     sport: str
+    league: str
+    market: str
     team1: str
     team2: str
     bet_type: str
@@ -51,8 +55,11 @@ class Opportunity:
     bet2: str
     odds1_link: str
     odds2_link: str
+    profit_margin: float
     bookmaker1_link: str
     bookmaker2_link: str
+    total_line: str
+    timestamp: str
     commence_time: str
 
     @property
@@ -87,7 +94,7 @@ class Opportunity:
 2: <a href="{self._link(self.odds2_link, self.bookmaker2_link)}">{self.bookmaker2}</a>
    ({self.bet2} @ {self._american(self.odds2)})<br>
 ROI: {self.roi:.2f}%<br>
-Starts {when} ({self.commence_dt.strftime('%I:%M %p %Z')})<br>
+Start{"s" if (now-self.commence_dt).seconds < 0 else "ed"} {when} ({self.commence_dt.strftime('%I:%M %p %Z')})<br>
 <hr>
 """
 

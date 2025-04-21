@@ -7,6 +7,7 @@ import os
 import datetime
 import pytz
 import humanize
+import calendar
 
 # Get the directory where the script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -21,7 +22,7 @@ REGIONS = ["us"]
 
 # Profit margin range (percentage)
 MIN_PROFIT_MARGIN = 0.5  # Minimum profit margin to consider (%)
-MAX_PROFIT_MARGIN = 8.0  # Maximum profit margin to consider (%) - very high margins might indicate errors
+MAX_PROFIT_MARGIN = 10.0  # Maximum profit margin to consider (%) - very high margins might indicate errors
 
 # Sports to include (set to None to include all)
 ENABLED_SPORTS = ["americanfootball_nfl", "basketball_nba", "baseball_mlb", "soccer_uefa_champs_league", "icehockey_nhl"]
@@ -34,6 +35,9 @@ ENABLED_BET_TYPES = ["Moneyline", "Over/Under"]
 
 # Time criteria for events
 MAX_HOURS_UNTIL_EVENT = 48  # Only consider events within this many hours
+
+# Target frequency of checks (set to None to use all credits by the end of the month)
+TARGET_CHECKS_PER_HOUR = 3 # Number of checks to perform per hour
 
 # ====================================================================
 
@@ -549,13 +553,10 @@ def get_remaining_credits():
         print(f"Error making request to API: {e}")
         return None
 
-def calculate_sleep_time(credits_left: int) -> int | None:
+def calculate_sleep_time(credits_left: int, days_left: int) -> int | None:
     """Return the ideal sleep‑seconds between checks or None if we should stop."""
-    import calendar
 
-    today = datetime.datetime.now()
-    _, days_in_month = calendar.monthrange(today.year, today.month)
-    days_left = days_in_month - today.day + 1          # incl. today
+    print(f"Days left in month: {days_left}")
 
     per_day = credits_left / days_left
     if per_day <= 0:
@@ -563,16 +564,31 @@ def calculate_sleep_time(credits_left: int) -> int | None:
         return None
 
     sports_n   = len(ENABLED_SPORTS or SPORTS)
-    books_n    = 1                                     # 1 credit / 10 books – keep simple
+    books_n    = 1                                     # 1 credit / 10 books – or so they say, doesn't seem to be true
     cost_check = len(MARKETS) * len(REGIONS) * sports_n * books_n
 
     if per_day < cost_check:
         print("Not enough credits for even one full check per day.")
         return None
 
+    print(f"Arb-finder uses {cost_check} credits per check ({len(MARKETS)} markets, {len(REGIONS)} regions, {sports_n} sports)")
+
     checks_per_day = per_day / cost_check
     seconds = max(300, (24 * 3600) / checks_per_day)   # ≥5 min
     return int(seconds)
+
+def calculate_max_time_running(credits_left: int, frequency: int) -> int | None:
+    """Return the max time we can run this script with the given credits and frequency."""
+    if credits_left <= 0 or frequency <= 0:
+        return None
+
+    # Calculate the number of checks we can perform
+    checks_possible = credits_left // frequency
+
+    # Calculate the total time in seconds
+    total_time_seconds = checks_possible * (3600 / TARGET_CHECKS_PER_HOUR)
+    
+    return int(total_time_seconds)
 
 
 if __name__ == "__main__":
@@ -585,13 +601,38 @@ if __name__ == "__main__":
 
     print(f"Credits remaining: {remaining_credits}")
 
-    sleep_time = calculate_sleep_time(remaining_credits)
-    if sleep_time is None:
-        print("No sleep time calculated. Exiting...")
-        quit()
+    # Calculate sleep time based on remaining credits and target checks
+    today = datetime.datetime.now()
+    _, days_in_month = calendar.monthrange(today.year, today.month)
+    days_left = days_in_month - today.day + 1          # incl. today
+
+    # Calculate target checks per hour
+    target_checks = TARGET_CHECKS_PER_HOUR
+    if target_checks is None:
+        sleep_time = calculate_sleep_time(remaining_credits, days_left)
+        if sleep_time is None:
+            print("No sleep time calculated. Exiting...")
+            quit()
+    else:
+        # Calculate sleep time based on target checks per hour
+        sleep_time = 3600 / target_checks
+
     sleep_time_human = humanize.precisedelta(datetime.timedelta(seconds=sleep_time))
     print(f"Sleeping for {sleep_time_human} between checks")
 
+    # Calculate max time running based on remaining credits and frequency
+    max_time_running = calculate_max_time_running(remaining_credits, target_checks)
+    if max_time_running is None:
+        print("No max time calculated. Exiting...")
+        quit()
+    max_time_human = humanize.precisedelta(datetime.timedelta(seconds=max_time_running))
+    print(f"Max time running: {max_time_human}")
+
+    # print warning if max time running is less than days left in the month
+    if max_time_running < (days_left-1) * 24 * 3600:  # this might not be mathematically correct, but it's a good approximation
+        print(f"⚠️ Warning: Max time running ({max_time_human}) is less than days left in the month ({days_left} days).")
+        print("\tThis means the script will run out of credits before the end of the month and fail.")
+    
     # ask the user if this is okay, hit enter to continue, or anything else to quit
     print("Press Enter to continue or CTRL+C to quit...")
     user_input = input()
